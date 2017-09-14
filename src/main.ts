@@ -1,5 +1,5 @@
-import { AiController } from './controllers/aiController';
 import { arrowCommands } from './constants';
+import { AiController } from './controllers/aiController';
 import { GameController } from './controllers/gameController';
 import { GameService } from './services/gameService';
 
@@ -8,10 +8,10 @@ const aiController = new AiController(fieldService);
 const gameConfig = {
   onGameStart: (n: number) => {
     aiController.initBrain(n); //todo load from some json mb
-    aiController.loadFromJSON('../../networks/brain_age_3.json');
+    aiController.loadFromJSON('../../networks/brain_age_2068.json', true);
   },
   onGameOver: (totalScore) => {
-    aiController.rewardMove(totalScore);
+    aiController.setPreviousScore(totalScore);
   },
 };
 
@@ -26,6 +26,12 @@ gameController.connect(() => {
       const predictMove = aiController.predictMove();
       const localMeta = fieldService.move(arrowCommands[predictMove]);
       gameController.addScore(localMeta.reward);
+      aiController.rewardMove(
+        localMeta.reward,
+        gameController.getTotalMoves(),
+        fieldService.getMaxValue(),
+        fieldService.getEmptyCount(),
+      );
       gameController.sendMove(predictMove);
       aiController.visSelf();
   });

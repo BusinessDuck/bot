@@ -78,6 +78,10 @@ export class GameController {
     }
   }
 
+  public getTotalMoves() {
+    return this.moves;
+  }
+
   private detectGameStart() {
     return this.previousMessage === '';
   }

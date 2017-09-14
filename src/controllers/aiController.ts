@@ -1,5 +1,6 @@
 import { deepqlearn } from 'convnetjs-ts';
-import { writeFileSync, readFileSync } from 'jsonfile';
+import { readFileSync, writeFileSync } from 'jsonfile';
+import {isNull} from 'util';
 import {
   arrowCommands,
   inputSequence,
@@ -11,12 +12,17 @@ import { getKeyByValue } from '../utils';
 export class AiController {
   private previousMove: string;
   private previousScore: number;
+  private previousLocalScore: number;
   private brain: object;
   private gameService: GameService;
+  private previousMoves: number;
+  private lastReward: number;
 
   constructor(gameServiceInstance: GameService) {
     this.gameService = gameServiceInstance;
     this.previousScore = 0;
+    this.previousLocalScore = 0;
+    this.previousMoves = 0;
   }
 
   public saveToJSON() {
@@ -24,9 +30,12 @@ export class AiController {
     writeFileSync(this.getFilePath(), JSON.stringify(obj));
   }
 
-  public loadFromJSON(path) {
+  public loadFromJSON(path, learn = false) {
     const json = JSON.parse(readFileSync(path));
-    this.brain.value_net.fromJSON(json);
+    if (!learn) {
+      this.brain.epsilon_test_time = 0.0; // don't make any random choices, ever
+      this.brain.learning = false;
+    }
   }
 
   public predictMove() {
@@ -37,14 +46,31 @@ export class AiController {
     return this.previousMove;
   }
 
-  public rewardMove(currentScore: number) {
-    const diff = currentScore - this.previousScore;
-    let delta: number = 0;
-    if (diff !== 0) {
-      delta = ( 1 + (-1 / diff ) );
+  public setPreviousScore(score: number) {
+    this.previousScore = score;
+    this.previousLocalScore = 0;
+  }
+
+  public rewardMove(currentScore: number, totalMoves: number, maxValue: number, emptyCount: number) {
+    let reward: number = 0;
+    let diff = Math.abs(currentScore - this.previousLocalScore);
+    if (diff !== 0 && currentScore !== 0) {
+      reward = ( 1 + (-1 / diff ) ); //1
     }
-    this.previousScore = currentScore;
-    this.brain.backward(delta);
+    reward += (1 - 1 / Math.log2(totalMoves + 2)); //2
+
+    diff = currentScore / maxValue;
+    if (currentScore !== 0 && diff !== 0 && currentScore <= maxValue) {
+      reward += Math.abs(1 / (( 1 - Math.log2(diff)) || 1)); //3
+    }
+    if (currentScore > maxValue) {
+      reward += 1;
+    }
+    reward += 1 - (Math.exp(1 / (emptyCount + 2)) - 1);
+
+    this.previousLocalScore = currentScore;
+    this.lastReward = reward / 4;
+    this.brain.backward(this.lastReward);
   }
 
   public visSelf() {
@@ -54,42 +80,54 @@ export class AiController {
       age: ${this.brain.age}\
       average Q-learning loss: ${this.brain.average_loss_window.get_average()}\
       smooth-ish reward: ${this.brain.average_reward_window.get_average()}\
+      previousScore: ${this.previousScore}\
+      previousLocalScore: ${this.previousLocalScore}\
+      lastReward: ${parseFloat(this.lastReward).toFixed(5)}\
     `);
   }
 
   public initBrain(fieldSize: number) {
     if (!this.brain) {
       // 16 inputs, 4 possible outputs (0,1,2,3)
-      const inputsNumber = fieldSize + 5;
-      this.brain = new deepqlearn.Brain(inputsNumber, 4, this.getOpt(inputsNumber));
+      const inputsNumber = fieldSize + 2;
+      this.brain = new deepqlearn.Brain(inputsNumber, 4, this.getOpt(fieldSize));
+      this.brain.learning = true;
     }
   }
 
   private getOpt(inputSize: number) {
-    return {
-      temporal_window: 0,           // how many previous game states to use as input to the network, we use only current
-      experience_size: 30000,       // how many state transitions to store in experience replay memory
-      start_learn_threshold: 1000,  // how many transitions are needed in experience replay memory before starting learning
-      gamma: 0.8,                   // future reward discount rate in Q-learning
-      learning_steps_burnin: 3000,  // how many steps make only random moves (keep epsilon = 1)
-      learning_steps_total: 100000, // then start decreasing epsilon from 1 to epsilon_min
-      epsilon_min: 0.05,            // value of exploration rate after learning_steps_total steps
-      epsilon_test_time: 0.01,      // exploration rate value when learning = false (not in use)
-      layer_defs: [                 // network structure
-        {type: 'input', out_sx: 1, out_sy: 1, out_depth: inputSize},
-        {type: 'fc', num_neurons: 50, activation: 'relu'},
-        {type: 'fc', num_neurons: 50, activation: 'relu'},
-        {type: 'regression', num_neurons: 4},
-        // for full documentation on layers see http://cs.stanford.edu/people/karpathy/convnetjs/docs.html
-      ],
-      tdtrainer_options: {
-        method: 'adadelta',         // options: adadelta, adagrad or sgd, for overview see http://arxiv.org/abs/1212.5701
-        learning_rate: 0.01,        // learning rate for all layers - the biggest 10^-n value that didn't blow up loss
-        momentum: 0,                // momentum for all layers - suggested default for adadelta
-        batch_size: 100,            // SGD minibatch size - average game session size?
-        l2_decay: 0.001,             // L2 regularization - suggested default
-      },
-    };
+    const num_inputs = inputSize + 2; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
+    const num_actions = 4; // 4 possible side can turn
+    const temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
+    const network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
+
+  // the value function network computes a value of taking any of the possible actions
+  // given an input state. Here we specify one explicitly the hard way
+  // but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
+  // to just insert simple relu hidden layers.
+    const layer_defs = [];
+    layer_defs.push({type: 'input', out_sx: 1, out_sy: 1, out_depth: network_size});
+    layer_defs.push({type: 'fc', num_neurons: 50, activation: 'relu'});
+    layer_defs.push({type: 'fc', num_neurons: 50, activation: 'relu'});
+    layer_defs.push({type: 'regression', num_neurons: num_actions});
+
+    // options for the Temporal Difference learner that trains the above net
+    // by backpropping the temporal difference learning rule.
+    const tdtrainer_options = {learning_rate: 0.001, momentum: 0.0, batch_size: 64, l2_decay: 0.01};
+
+    const opt = {};
+    opt.temporal_window = temporal_window;
+    opt.experience_size = 30000;
+    opt.start_learn_threshold = 1000;
+    opt.gamma = 0.7;
+    opt.learning_steps_total = 20000;
+    opt.learning_steps_burnin = 3000;
+    opt.epsilon_min = 0.05;
+    opt.epsilon_test_time = 0.05;
+    opt.layer_defs = layer_defs;
+    opt.tdtrainer_options = tdtrainer_options;
+
+    return opt;
   }
 
   private getFilePath() {
@@ -109,27 +147,27 @@ export class AiController {
   }
 
   private buildInputs() {
-    const inputs: number[] = this.gameService.getVector().map((value: number) => {
+    const max = this.gameService.getMaxValue();
+    const min = 2;
+    const inputs: {}[] = this.gameService.getVector().map((value: number) => {
       if (value > 0 && value !== inputSequenceMap[inputSequence.block]) {
-        return  1 + ( -1 / value );
+        return  (value - min) / (max - min);
       }
       if ( value === inputSequenceMap[inputSequence.block]) {
-        return -1;
+        return false;
       }
 
       return value;
     });
 
-    const bestMeta: any = this.bestReward();
-    inputs.push(arrowCommands[bestMeta.move] || -1);
-    inputs.push(arrowCommands[this.previousMove] || 0 / 4);
-    inputs.push(this.previousScore ? (1 + ( -1 / this.previousScore)) : 0);
-    inputs.push(this.getBlocksCount());
-    inputs.push(this.getEmptyCount());
+    // const bestMeta: any = this.bestReward();
+    // const bestMetaMove = isNull(bestMeta) ? -1 : arrowCommands[bestMeta.move];
+    // // console.log(bestMeta.move);
+    // inputs.push(bestMetaMove / 4);
+    inputs.push((arrowCommands[this.previousMove] || -1) / 4);
+    inputs.push(this.previousLocalScore ? (1 + ( -1 / this.previousLocalScore)) : 0);
 
-//	console.log('Inputs: ', inputs);
     return inputs;
-
   }
 
   /**
