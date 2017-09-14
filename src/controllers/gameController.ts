@@ -15,7 +15,7 @@ export class GameController {
   ) {
     this.onGameStart = onGameStart;
     this.onGameOver = onGameOver;
-    this.gameServerUrl = 'ws://2048.luxoft.com:8080/codenjoy-contest/ws?user=dyurov@luxoft.com';
+    this.gameServerUrl = 'ws://84.47.146.179:8080/codenjoy-contest/ws?user=dyurov@luxoft.com';
     this.gameClient = new WebSocketClient();
     this.connectEstablished = false;
     this.onMessage = () => null;

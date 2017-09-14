@@ -43,32 +43,48 @@ export class FieldService {
    * @returns {{ reward: number, outputVector: number[] }}
    */
   public move(sideName: number) {
+    const countPairs = (value) => {
+      let count = 0;
+      value.forEach((item, index) => {
+        if (item && (
+            value[index - 1] === item ||
+            value[index + 1] === item ||
+            value[this.fieldSize + index] === item ||
+            value[this.fieldSize - index] === item
+          )
+        ) {
+          count += 1;
+        }
+      });
+
+      return count;
+    };
+
     let result: { reward: number, outputVector: number[] };
     switch (sideName) {
       case arrowCommands.LEFT:
-        return this.moveVectorItemsToLeft(this.fieldVector);
+        result = this.moveVectorItemsToLeft(this.fieldVector)
+        result.pairs = countPairs(result.outputVector);
+
+        return result;
       case arrowCommands.DOWN:
         result = this.moveVectorItemsToLeft(this.rotateRightVector(this.fieldVector));
+        result.outputVector = this.rotateLeftVector(result.outputVector);
+        result.pairs = countPairs(result.outputVector);
 
-        return {
-          outputVector: this.rotateLeftVector(result.outputVector),
-          reward: result.reward,
-        };
+        return result;
       case arrowCommands.RIGHT:
         result = this.moveVectorItemsToLeft(this.rotateRightVector(this.fieldVector, 2));
+        result.outputVector = this.rotateLeftVector(result.outputVector, 2);
+        result.pairs = countPairs(result.outputVector);
 
-        return {
-          outputVector: this.rotateLeftVector(result.outputVector, 2),
-          reward: result.reward,
-        };
-
+        return result;
       case arrowCommands.UP:
         result = this.moveVectorItemsToLeft(this.rotateLeftVector(this.fieldVector));
+        result.outputVector = this.rotateRightVector(result.outputVector);
+        result.pairs = countPairs(result.outputVector);
 
-        return {
-          outputVector: this.rotateRightVector(result.outputVector),
-          reward: result.reward,
-        };
+        return result;
       default:
         return this.moveVectorItemsToLeft(this.fieldVector);
     }

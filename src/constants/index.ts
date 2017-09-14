@@ -5,13 +5,6 @@ export const arrowCommands = {
   DOWN: 3,
 };
 
-export const inverseCommands = {
-  LEFT: arrowCommands.RIGHT,
-  UP: arrowCommands.DOWN,
-  RIGHT: arrowCommands.LEFT,
-  DOWN: arrowCommands.UP,
-};
-
 export const inputSequence = {
   'block': 'x', // - препятствие, через которое цифра не пройдет
   '2': '2',
