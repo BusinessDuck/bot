@@ -8,7 +8,7 @@ const aiController = new AiController(fieldService);
 const gameConfig = {
   onGameStart: (n: number) => {
     aiController.initBrain(n); //todo load from some json mb
-    aiController.loadFromJSON('../../networks/brain_age_2068.json', true);
+    aiController.loadFromJSON('../../networks/brain_age_21427.json', false);
   },
   onGameOver: (totalScore) => {
     aiController.setPreviousScore(totalScore);

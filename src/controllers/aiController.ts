@@ -89,14 +89,14 @@ export class AiController {
   public initBrain(fieldSize: number) {
     if (!this.brain) {
       // 16 inputs, 4 possible outputs (0,1,2,3)
-      const inputsNumber = fieldSize + 2;
+      const inputsNumber = fieldSize;
       this.brain = new deepqlearn.Brain(inputsNumber, 4, this.getOpt(fieldSize));
       this.brain.learning = true;
     }
   }
 
   private getOpt(inputSize: number) {
-    const num_inputs = inputSize + 2; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
+    const num_inputs = inputSize; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
     const num_actions = 4; // 4 possible side can turn
     const temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
     const network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
@@ -154,7 +154,7 @@ export class AiController {
         return  (value - min) / (max - min);
       }
       if ( value === inputSequenceMap[inputSequence.block]) {
-        return false;
+        return 0;
       }
 
       return value;
@@ -164,8 +164,9 @@ export class AiController {
     // const bestMetaMove = isNull(bestMeta) ? -1 : arrowCommands[bestMeta.move];
     // // console.log(bestMeta.move);
     // inputs.push(bestMetaMove / 4);
-    inputs.push((arrowCommands[this.previousMove] || -1) / 4);
-    inputs.push(this.previousLocalScore ? (1 + ( -1 / this.previousLocalScore)) : 0);
+    // inputs.push((arrowCommands[this.previousMove] || -1) / 4);
+    // inputs.push(this.previousLocalScore ? (1 + ( -1 / this.previousLocalScore)) : 0);
+    // console.log(inputs);
 
     return inputs;
   }
