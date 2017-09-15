@@ -17,6 +17,7 @@ export class GameService {
    */
   public printField(vector: number[] = this.fieldVector) {
     const grid = vector.slice();
+    process.stdout.write('\r');
     while (grid.length > 0) {
       console.log(grid.splice(0, this.fieldSize).map(function (n: number){ // tslint:disable-line
         return n > 9 ? n : ` ${n}`;
@@ -35,6 +36,11 @@ export class GameService {
     }
 
     return this.initVector(input);
+  }
+
+  public updateRawVector(vector) {
+    this.fieldVector = vector;
+    this.fieldSize = Math.sqrt(vector.length);
   }
 
   /**
@@ -61,6 +67,11 @@ export class GameService {
     };
 
     let result: { reward: number, outputVector: number[], pairs: number };
+
+    // console.log("------------- IN ------------ ");
+    // this.printField(this.fieldVector);
+    // console.log("------------- _____ ------------");
+
     switch (sideName) {
       case arrowCommands.LEFT:
         result = this.moveVectorItemsToLeft(this.fieldVector);
@@ -83,6 +94,10 @@ export class GameService {
         result = this.moveVectorItemsToLeft(this.rotateLeftVector(this.fieldVector));
         result.outputVector = this.rotateRightVector(result.outputVector);
         result.pairs = countPairs(result.outputVector);
+
+        // console.log("------------- OUT ------------ ");
+        // this.printField(result.outputVector);
+        // console.log("------------- _____ ------------");
 
         return result;
       default:
@@ -156,7 +171,7 @@ export class GameService {
           result[i * this.fieldSize + j] = vector[(this.fieldSize - j - 1) * this.fieldSize + i];
         }
       }
-      vector = result;
+      vector = result.slice();
     }
 
     return result;
@@ -241,6 +256,7 @@ export class GameService {
         }
       });
     }
+
 
     return {
       reward,

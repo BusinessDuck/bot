@@ -1,47 +1,50 @@
-import { arrowCommands } from './constants';
+// import { arrowCommands } from './constants';
 import { AiController } from './controllers/aiController';
-import { GameController } from './controllers/gameController';
+// import { GameController } from './controllers/gameController';
 import { GameService } from './services/gameService';
 
 const fieldService = new GameService('');
 const aiController = new AiController(fieldService);
-const gameConfig = {
-  onGameStart: (n: number) => {
-    aiController.initBrain(n); //todo load from some json mb
-    aiController.loadFromJSON('../../networks/brain_age_21427.json', false);
-  },
-  onGameOver: (totalScore) => {
-    aiController.setPreviousScore(totalScore);
-  },
-};
-
-const gameController = new GameController(
-  gameConfig.onGameStart,
-  gameConfig.onGameOver,
-);
-
-gameController.connect(() => {
-  gameController.setOnMessage((message: string) => { //tslint:disable-line
-      fieldService.updateVector(message.split('=').pop());
-      const predictMove = aiController.predictMove();
-      const localMeta = fieldService.move(arrowCommands[predictMove]);
-      gameController.addSore(localMeta.reward);
-      aiController.rewardMove(
-        localMeta.reward,
-        gameController.getTotalMoves(),
-        fieldService.getMaxValue(),
-        fieldService.getEmptyCount(),
-        localMeta.pairs,
-      );
-      gameController.sendMove(predictMove);
-      aiController.visSelf();
-  });
-});
-
 process.on('SIGINT', () => {
   aiController.saveToJSON();
   process.exit();
 });
+
+aiController.initBrain(6); //todo load from some json mb
+aiController.trainingStart();
+// const gameConfig = {
+//   onGameStart: (n: number) => {
+//     aiController.initBrain(n); //todo load from some json mb
+//     aiController.loadFromJSON('../../networks/brain_age_7636.json', false);
+//   },
+//   onGameOver: (totalScore) => {
+//     aiController.setPreviousScore(totalScore);
+//   },
+// };
+//
+// const gameController = new GameController(
+//   gameConfig.onGameStart,
+//   gameConfig.onGameOver,
+// );
+//
+// gameController.connect(() => {
+//   gameController.setOnMessage((message: string) => { //tslint:disable-line
+//       fieldService.updateVector(message.split('=').pop());
+//       const predictMove = aiController.predictMove();
+//       const localMeta = fieldService.move(arrowCommands[predictMove]);
+//       gameController.addScore(localMeta.reward);
+//       aiController.rewardMove(
+//         localMeta.reward,
+//         gameController.getTotalMoves(),
+//         fieldService.getMaxValue(),
+//         fieldService.getEmptyCount(),
+//         localMeta.pairs,
+//       );
+//       gameController.sendMove(predictMove);
+//       aiController.visSelf();
+//   });
+// });
+
 
 // function getRandomSample(array, count) {
 //   const indices = [];

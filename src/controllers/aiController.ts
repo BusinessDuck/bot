@@ -8,6 +8,7 @@ import {
 } from '../constants';
 import {GameService} from '../services/gameService';
 import { getKeyByValue } from '../utils';
+import {version} from "punycode";
 
 export class AiController {
   private previousMove: string;
@@ -66,31 +67,113 @@ export class AiController {
       }
 
       diff = currentScore / maxValue;
-      if (currentScore !== 0 && diff !== 0 && currentScore <= maxValue) {
-        reward += Math.abs(1 / (( 1 - Math.log2(diff)) || 1)); //2
+      if (currentScore <= maxValue) {
+        reward += Math.abs(1 / (( 1 - Math.log2(diff )) || 1)); //2
       }
       if (currentScore > maxValue) {
         reward += 1;
       }
-      reward += Math.log2(emptyCount) / this.gameService.fieldSize;
+      reward += Math.log2(emptyCount + 2) / this.gameService.fieldSize;
     }
     this.previousPairs = pairs;
     this.previousEmpty = emptyCount;
     this.previousLocalScore = currentScore;
-    this.lastReward = reward / 3;
+    this.lastReward = reward * totalMoves;
     this.brain.backward(this.lastReward);
   }
 
-  public visSelf() {
+  public trainingStart() {
+    let initVector = [
+      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      0, 0, null, null, 0, 0,
+      0, 0, null, null, 0, 0,
+      0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0,
+    ];
+
+    function spotNew(vector){
+      const zeroIndexes = [];
+      let score = 0;
+      vector.forEach((item, index) => {
+        if (item === 0) {
+          zeroIndexes.push(index);
+        }
+      });
+      const random1 = Math.floor(Math.random() * (zeroIndexes.length));
+      const random2 = Math.floor(Math.random() * (zeroIndexes.length));
+      if (zeroIndexes.length === 1) {
+        vector[zeroIndexes[random1]] = 4;
+        score += 4;
+      }
+      if (zeroIndexes.length >= 2) {
+        vector[zeroIndexes[random1]] = 2;
+        vector[zeroIndexes[random2]] = 2;
+        score += 4;
+      }
+
+      return { vector, score };
+    }
+    let totalGameScore = 0;
+    let currentVector = spotNew(initVector.slice()).vector;
+
+    const checkGameOver = (vector) => {
+      let count = 0;
+      if (vector.filter(item => item !== 0).length !== vector.length) {
+        return false;
+      }
+      vector.forEach((item, index) => {
+        if (item && (
+            (vector[index - 1] === item &&  ((index) % this.gameService.fieldSize !== 0)) ||
+            (vector[index + 1] === item && ((index + 1) % this.gameService.fieldSize !== 0)) ||
+            vector[this.gameService.fieldSize + index] === item ||
+            vector[index - this.gameService.fieldSize] === item
+          )
+        ) {
+          count += 1;
+        }
+      });
+
+      return count === 0;
+    };
+    let prevGameScore = 1;
+    let avgGameScore = 0;
+    let gamesCount = 1;
+    let totalMoves = 0;
+
+    while(this.brain.age < 100000) {
+      totalMoves += 1;
+      this.gameService.updateRawVector(currentVector);
+      const predictMove = this.predictMove();
+      const localMeta = this.gameService.move(arrowCommands[predictMove]);
+      currentVector = localMeta.outputVector;
+      const metaSpot = spotNew(currentVector);
+      totalGameScore += metaSpot.score;
+      this.gameService.updateRawVector(metaSpot.vector);
+
+      this.brain.backward(prevGameScore);
+
+      if (checkGameOver(currentVector)) {
+        this.visSelf(totalGameScore);
+        currentVector = spotNew(initVector.slice()).vector;
+        prevGameScore = totalGameScore;
+        avgGameScore += totalGameScore;
+        gamesCount += 1;
+        totalGameScore = 0;
+        totalMoves = 0;
+      }
+    }
+    this.saveToJSON();
+  }
+
+  public visSelf(totalGameScore) {
     process.stdout.write(`\r\
       experience replay size:  ${this.brain.experience.length}\
       exploration epsilon: ${this.brain.epsilon}\
       age: ${this.brain.age}\
       average Q-learning loss: ${this.brain.average_loss_window.get_average()}\
       smooth-ish reward: ${this.brain.average_reward_window.get_average()}\
-      previousScore: ${this.previousScore}\
-      previousLocalScore: ${this.previousLocalScore}\
-      lastReward: ${parseFloat(this.lastReward).toFixed(5)}\
+      previousScore: ${totalGameScore}\
     `);
   }
 
@@ -98,7 +181,7 @@ export class AiController {
     if (!this.brain) {
       // 16 inputs, 4 possible outputs (0,1,2,3)
       const inputsNumber = fieldSize;
-      this.brain = new deepqlearn.Brain(inputsNumber, 4, this.getOpt(fieldSize));
+      this.brain = new deepqlearn.Brain(inputsNumber, 4, this.getOpt(inputsNumber));
       this.brain.learning = true;
     }
   }
@@ -123,7 +206,7 @@ export class AiController {
       ],
       tdtrainer_options: {
         method: 'adadelta',         // options: adadelta, adagrad or sgd, for overview see http://arxiv.org/abs/1212.5701
-        learning_rate: 0.01,        // learning rate for all layers - the biggest 10^-n value that didn't blow up loss
+        learning_rate: 1,        // learning rate for all layers - the biggest 10^-n value that didn't blow up loss
         momentum: 0,                // momentum for all layers - suggested default for adadelta
         batch_size: 100,            // SGD minibatch size - average game session size?
         l2_decay: 0.001,             // L2 regularization - suggested default
@@ -148,19 +231,15 @@ export class AiController {
   }
 
   private buildInputs() {
-    const max = this.gameService.getMaxValue();
-    const min = 2;
     const inputs: {}[] = this.gameService.getVector().map((value: number) => {
-      if (value > 0 && value !== inputSequenceMap[inputSequence.block]) {
-        return  (value - min) / (max - min);
-      }
       if ( value === inputSequenceMap[inputSequence.block]) {
-        return 0;
+        return false;
       }
 
       return value;
     });
 
+    // console.log(inputs.join());
     return inputs;
   }
 
@@ -169,7 +248,7 @@ export class AiController {
    * @param {Object} meta
    * @param {Number} meta.over
    */
-  private bestReward() {
+  private bestMove() {
     const keysList: string[] = Object.keys(arrowCommands);
     let meta: {};
     meta = {
@@ -184,6 +263,7 @@ export class AiController {
       }
     });
 
-    return meta;
+    return meta.move;
   }
+
 }
