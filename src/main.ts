@@ -25,12 +25,13 @@ gameController.connect(() => {
       fieldService.updateVector(message.split('=').pop());
       const predictMove = aiController.predictMove();
       const localMeta = fieldService.move(arrowCommands[predictMove]);
-      gameController.addScore(localMeta.reward);
+      gameController.addSore(localMeta.reward);
       aiController.rewardMove(
         localMeta.reward,
         gameController.getTotalMoves(),
         fieldService.getMaxValue(),
         fieldService.getEmptyCount(),
+        localMeta.pairs,
       );
       gameController.sendMove(predictMove);
       aiController.visSelf();

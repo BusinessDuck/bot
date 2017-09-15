@@ -17,12 +17,16 @@ export class AiController {
   private gameService: GameService;
   private previousMoves: number;
   private lastReward: number;
+  private previousPairs: number;
+  private previousEmpty: number;
 
   constructor(gameServiceInstance: GameService) {
     this.gameService = gameServiceInstance;
     this.previousScore = 0;
     this.previousLocalScore = 0;
     this.previousMoves = 0;
+    this.previousPairs = 0;
+    this.previousEmpty = 0;
   }
 
   public saveToJSON() {
@@ -51,25 +55,29 @@ export class AiController {
     this.previousLocalScore = 0;
   }
 
-  public rewardMove(currentScore: number, totalMoves: number, maxValue: number, emptyCount: number) {
+  public rewardMove(currentScore: number, totalMoves: number, maxValue: number, emptyCount: number, pairs: number) {
     let reward: number = 0;
     let diff = Math.abs(currentScore - this.previousLocalScore);
-    if (diff !== 0 && currentScore !== 0) {
-      reward = ( 1 + (-1 / diff ) ); //1
-    }
-    reward += (1 - 1 / Math.log2(totalMoves + 2)); //2
+    if (currentScore || (this.previousPairs < pairs && emptyCount > this.previousEmpty)) {
+      if (diff !== 0) {
+        reward = ( 1 + (-1 / diff ) ); //1
+      } else {
+        reward = 1;
+      }
 
-    diff = currentScore / maxValue;
-    if (currentScore !== 0 && diff !== 0 && currentScore <= maxValue) {
-      reward += Math.abs(1 / (( 1 - Math.log2(diff)) || 1)); //3
+      diff = currentScore / maxValue;
+      if (currentScore !== 0 && diff !== 0 && currentScore <= maxValue) {
+        reward += Math.abs(1 / (( 1 - Math.log2(diff)) || 1)); //2
+      }
+      if (currentScore > maxValue) {
+        reward += 1;
+      }
+      reward += Math.log2(emptyCount) / this.gameService.fieldSize;
     }
-    if (currentScore > maxValue) {
-      reward += 1;
-    }
-    reward += 1 - (Math.exp(1 / (emptyCount + 2)) - 1);
-
+    this.previousPairs = pairs;
+    this.previousEmpty = emptyCount;
     this.previousLocalScore = currentScore;
-    this.lastReward = reward / 4;
+    this.lastReward = reward / 3;
     this.brain.backward(this.lastReward);
   }
 
@@ -96,38 +104,31 @@ export class AiController {
   }
 
   private getOpt(inputSize: number) {
-    const num_inputs = inputSize; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
-    const num_actions = 4; // 4 possible side can turn
-    const temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
-    const network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
-
-  // the value function network computes a value of taking any of the possible actions
-  // given an input state. Here we specify one explicitly the hard way
-  // but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
-  // to just insert simple relu hidden layers.
-    const layer_defs = [];
-    layer_defs.push({type: 'input', out_sx: 1, out_sy: 1, out_depth: network_size});
-    layer_defs.push({type: 'fc', num_neurons: 50, activation: 'relu'});
-    layer_defs.push({type: 'fc', num_neurons: 50, activation: 'relu'});
-    layer_defs.push({type: 'regression', num_neurons: num_actions});
-
-    // options for the Temporal Difference learner that trains the above net
-    // by backpropping the temporal difference learning rule.
-    const tdtrainer_options = {learning_rate: 0.001, momentum: 0.0, batch_size: 64, l2_decay: 0.01};
-
-    const opt = {};
-    opt.temporal_window = temporal_window;
-    opt.experience_size = 30000;
-    opt.start_learn_threshold = 1000;
-    opt.gamma = 0.7;
-    opt.learning_steps_total = 20000;
-    opt.learning_steps_burnin = 3000;
-    opt.epsilon_min = 0.05;
-    opt.epsilon_test_time = 0.05;
-    opt.layer_defs = layer_defs;
-    opt.tdtrainer_options = tdtrainer_options;
-
-    return opt;
+    // create a brain with the following hyperparameters
+     return {
+      temporal_window: 0,           // how many previous game states to use as input to the network, we use only current
+      experience_size: 30000,       // how many state transitions to store in experience replay memory
+      start_learn_threshold: 1000,  // how many transitions are needed in experience replay memory before starting learning
+      gamma: 0.8,                   // future reward discount rate in Q-learning
+      learning_steps_burnin: 3000,  // how many steps make only random moves (keep epsilon = 1)
+      learning_steps_total: 100000, // then start decreasing epsilon from 1 to epsilon_min
+      epsilon_min: 0.05,            // value of exploration rate after learning_steps_total steps
+      epsilon_test_time: 0.01,      // exploration rate value when learning = false (not in use)
+      layer_defs: [                 // network structure
+        {type: 'input', out_sx: 1, out_sy: 1, out_depth: inputSize},
+        {type: 'fc', num_neurons: 50, activation: 'relu'},
+        {type: 'fc', num_neurons: 50, activation: 'relu'},
+        {type: 'regression', num_neurons: 4},
+        // for full documentation on layers see http://cs.stanford.edu/people/karpathy/convnetjs/docs.html
+      ],
+      tdtrainer_options: {
+        method: 'adadelta',         // options: adadelta, adagrad or sgd, for overview see http://arxiv.org/abs/1212.5701
+        learning_rate: 0.01,        // learning rate for all layers - the biggest 10^-n value that didn't blow up loss
+        momentum: 0,                // momentum for all layers - suggested default for adadelta
+        batch_size: 100,            // SGD minibatch size - average game session size?
+        l2_decay: 0.001,             // L2 regularization - suggested default
+      },
+    };
   }
 
   private getFilePath() {
@@ -159,14 +160,6 @@ export class AiController {
 
       return value;
     });
-
-    // const bestMeta: any = this.bestReward();
-    // const bestMetaMove = isNull(bestMeta) ? -1 : arrowCommands[bestMeta.move];
-    // // console.log(bestMeta.move);
-    // inputs.push(bestMetaMove / 4);
-    // inputs.push((arrowCommands[this.previousMove] || -1) / 4);
-    // inputs.push(this.previousLocalScore ? (1 + ( -1 / this.previousLocalScore)) : 0);
-    // console.log(inputs);
 
     return inputs;
   }
